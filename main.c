@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "fonts.h"
 #include "ssd1306.h"
+#include<stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,6 +44,8 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim2;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -51,13 +54,115 @@ I2C_HandleTypeDef hi2c1;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+uint8_t DHT11_Read_Float(float *humidity, float *temperature)
+{
+    /* ------------------- CONFIGURATION ------------------- */
+    GPIO_TypeDef *PORT   = GPIOB;       // DHT GPIO port
+    uint16_t      PIN    = GPIO_PIN_0;  // DHT GPIO pin
+    TIM_HandleTypeDef *TIMER = &htim2;  // Timer used for microsecond delay
+    /* ----------------------------------------------------- */
 
+    uint8_t data[5] = {0};
+    GPIO_InitTypeDef GPIO_InitStruct;
+
+    // ----- 1. Start signal -----
+    GPIO_InitStruct.Pin   = PIN;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(PORT, &GPIO_InitStruct);
+
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_RESET);
+    HAL_Delay(20);           // =18ms start pulse
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET);
+
+    // Inline 30 us delay
+    if (TIMER->State == HAL_TIM_STATE_RESET || TIMER->State == HAL_TIM_STATE_READY)
+        HAL_TIM_Base_Start(TIMER);
+    __HAL_TIM_SET_COUNTER(TIMER, 0);
+    while (__HAL_TIM_GET_COUNTER(TIMER) < 30);
+
+    // ----- 2. Input mode -----
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(PORT, &GPIO_InitStruct);
+
+    // ----- 3. Wait for sensor response -----
+    uint16_t timeout;
+
+    // Wait for LOW
+    timeout = 200;
+    while (HAL_GPIO_ReadPin(PORT, PIN) != GPIO_PIN_RESET)
+    {
+        if (--timeout == 0) return 3;
+        __HAL_TIM_SET_COUNTER(TIMER, 0);
+        while (__HAL_TIM_GET_COUNTER(TIMER) < 1);  // 1 us delay
+    }
+
+    // Wait for HIGH
+    timeout = 200;
+    while (HAL_GPIO_ReadPin(PORT, PIN) != GPIO_PIN_SET)
+    {
+        if (--timeout == 0) return 4;
+        __HAL_TIM_SET_COUNTER(TIMER, 0);
+        while (__HAL_TIM_GET_COUNTER(TIMER) < 1);  // 1 us delay
+    }
+
+    // Wait for LOW again
+    timeout = 200;
+    while (HAL_GPIO_ReadPin(PORT, PIN) != GPIO_PIN_RESET)
+    {
+        if (--timeout == 0) return 5;
+        __HAL_TIM_SET_COUNTER(TIMER, 0);
+        while (__HAL_TIM_GET_COUNTER(TIMER) < 1);  // 1 us delay
+    }
+
+    // ----- 4. Read 40 bits -----
+    for (int i = 0; i < 40; i++)
+    {
+        // Wait for HIGH (start of bit)
+        timeout = 200;
+        while (HAL_GPIO_ReadPin(PORT, PIN) != GPIO_PIN_SET)
+        {
+            if (--timeout == 0) return 6;
+            __HAL_TIM_SET_COUNTER(TIMER, 0);
+            while (__HAL_TIM_GET_COUNTER(TIMER) < 1);  // 1 us delay
+        }
+
+        // Sample midpoint (�40 us)
+        __HAL_TIM_SET_COUNTER(TIMER, 0);
+        while (__HAL_TIM_GET_COUNTER(TIMER) < 40);
+
+        data[i/8] <<= 1;
+        if (HAL_GPIO_ReadPin(PORT, PIN) == GPIO_PIN_SET)
+            data[i/8] |= 1;
+
+        // Wait for LOW (end of bit)
+        timeout = 200;
+        while (HAL_GPIO_ReadPin(PORT, PIN) != GPIO_PIN_RESET)
+        {
+            if (--timeout == 0) return 7;
+            __HAL_TIM_SET_COUNTER(TIMER, 0);
+            while (__HAL_TIM_GET_COUNTER(TIMER) < 1);  // 1 us delay
+        }
+    }
+
+    // ----- 5. Checksum -----
+    if (data[4] != (uint8_t)(data[0] + data[1] + data[2] + data[3])) return 2;
+
+    // ----- 6. Return float values -----
+    *humidity    = (float)data[0] + ((float)data[1] / 10.0f);
+    *temperature = (float)data[2] + ((float)data[3] / 10.0f);
+
+    return 0;
+}
 /* USER CODE END 0 */
 
 /**
@@ -90,10 +195,9 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	SSD1306_Init();
-	SSD1306_DrawCircle(64, 32, 20, SSD1306_COLOR_WHITE);
-	SSD1306_UpdateScreen();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -103,6 +207,49 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		 has_error = DHT11_Read_Float(&h, &t);
+
+    if (has_error == 0)
+    {
+    
+        SSD1306_Fill(0);
+
+        SSD1306_GotoXY(0, 0);
+        sprintf(temp, "Temp: %.2fC", t);
+        SSD1306_Puts(temp, &Font_7x10, 1);
+
+        SSD1306_GotoXY(0, 20);
+        sprintf(temp, "Humidity: %.2f%%", h);   
+        SSD1306_Puts(temp, &Font_7x10, 1);
+
+        SSD1306_UpdateScreen();
+
+     
+        if (t < 25.0f)
+        {
+           
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); 
+            HAL_Delay(500);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);   
+            HAL_Delay(500);
+        }
+        else
+        {
+            
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); 
+        }
+    }
+    else
+    {
+      
+        SSD1306_Fill(0);
+        SSD1306_GotoXY(0, 0);
+        sprintf(temp, "DHT Err: %d", has_error);
+        SSD1306_Puts(temp, &Font_7x10, 1);
+        SSD1306_UpdateScreen();
+
+        HAL_Delay(1000);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -178,19 +325,102 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 7;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 65535;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1|GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA1 PA13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA2 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
