@@ -57,67 +57,7 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-char getPressedKey(void)
-{
-    char key = 0;  // Default: no key pressed
 
-    /* ------------------- CONFIGURATION ------------------- */
-    /* -------- PORT VARIABLES -------- */
-    GPIO_TypeDef *portRow = GPIOA; // change to your rows GPIO port - output
-    GPIO_TypeDef *portCol = GPIOA; // change to your columns GPIO port - Input/pull down
-
-    /* -------- PIN VARIABLES -------- */
-    uint16_t rowPins[4] = {GPIO_PIN_7, GPIO_PIN_6, GPIO_PIN_5, GPIO_PIN_4}; // change to your row GPIO pins
-    uint16_t colPins[4] = {GPIO_PIN_3, GPIO_PIN_2, GPIO_PIN_1, GPIO_PIN_0}; // change to your column GPIO pins
-    /* ----------------------------------------------------- */
-
-    // -------- ROW 1 --------
-    HAL_GPIO_WritePin(portRow, rowPins[0], GPIO_PIN_SET);
-    HAL_GPIO_WritePin(portRow, rowPins[1], GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(portRow, rowPins[2], GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(portRow, rowPins[3], GPIO_PIN_RESET);
-
-    if (HAL_GPIO_ReadPin(portCol, colPins[0]) == GPIO_PIN_SET) key = '1';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[1]) == GPIO_PIN_SET) key = '2';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[2]) == GPIO_PIN_SET) key = '3';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[3]) == GPIO_PIN_SET) key = 'A';
-
-    // -------- ROW 2 --------
-    HAL_GPIO_WritePin(portRow, rowPins[0], GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(portRow, rowPins[1], GPIO_PIN_SET);
-
-    if (HAL_GPIO_ReadPin(portCol, colPins[0]) == GPIO_PIN_SET) key = '4';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[1]) == GPIO_PIN_SET) key = '5';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[2]) == GPIO_PIN_SET) key = '6';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[3]) == GPIO_PIN_SET) key = 'B';
-
-    // -------- ROW 3 --------
-    HAL_GPIO_WritePin(portRow, rowPins[1], GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(portRow, rowPins[2], GPIO_PIN_SET);
-
-    if (HAL_GPIO_ReadPin(portCol, colPins[0]) == GPIO_PIN_SET) key = '7';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[1]) == GPIO_PIN_SET) key = '8';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[2]) == GPIO_PIN_SET) key = '9';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[3]) == GPIO_PIN_SET) key = 'C';
-
-    // -------- ROW 4 --------
-    HAL_GPIO_WritePin(portRow, rowPins[2], GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(portRow, rowPins[3], GPIO_PIN_SET);
-
-    if (HAL_GPIO_ReadPin(portCol, colPins[0]) == GPIO_PIN_SET) key = '*';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[1]) == GPIO_PIN_SET) key = '0';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[2]) == GPIO_PIN_SET) key = '#';
-    else if (HAL_GPIO_ReadPin(portCol, colPins[3]) == GPIO_PIN_SET) key = 'D';
-
-    // -------- DEBOUNCE --------
-    if (key != 0)
-    {
-        HAL_Delay(20);
-        return key;
-    }
-
-    return 0;  // No key pressed
-}
 /* USER CODE END 0 */
 
 /**
@@ -152,7 +92,10 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 	SSD1306_Init();
-  /* USER CODE END 2 */
+	SSD1306_Puts("CSE331 LAB",&Font_7x10,SSD1306_COLOR_BLACK);
+	SSD1306_UpdateScreen();
+	SSD1306_ScrollLeft(0x00, 0x07);
+/* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -161,15 +104,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		
-		char key = getPressedKey();
-		if(key!=0){
-			SSD1306_GotoXY(0,0);
-			SSD1306_Puts("pressed key: ",&Font_7x10,1);
-			SSD1306_Putc(key,&Font_7x10,1);
-			SSD1306_UpdateScreen();
-		
-		}
   }
   /* USER CODE END 3 */
 }
@@ -251,7 +185,6 @@ static void MX_I2C1_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -259,22 +192,6 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA0 PA1 PA2 PA3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA4 PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
