@@ -21,8 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "fonts.h"
-#include "ssd1306.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,7 +40,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
+TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
@@ -50,14 +49,35 @@ I2C_HandleTypeDef hi2c1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void Servo_GotoAngle(uint8_t angle)
+{
+    /* ------------------- SERVO CONFIGURATION ------------------- */
+    TIM_HandleTypeDef *TIMER = &htim4; //Prescaler = 7, Counter Period = 19999
+    uint32_t CHANNEL = TIM_CHANNEL_4;
+    /* ----------------------------------------------------------- */
 
+    // Clamp angle
+    if (angle > 180) angle = 180;
+
+    // Start PWM
+    HAL_TIM_PWM_Start(TIMER, CHANNEL);
+
+    // Map angle (0–180) to pulse width (500–2500 µs)
+    uint16_t pulse = 500 + ((uint32_t)angle * 2000) / 180;
+
+    // Set PWM compare value
+    __HAL_TIM_SET_COMPARE(TIMER, CHANNEL, pulse);
+
+    // Optional delay for servo to reach position
+    HAL_Delay(500);  // adjust based on servo speed
+}
 /* USER CODE END 0 */
 
 /**
@@ -89,20 +109,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-	SSD1306_Init();
-	SSD1306_Puts("CSE331 LAB",&Font_7x10,SSD1306_COLOR_BLACK);
-	SSD1306_UpdateScreen();
-	SSD1306_ScrollLeft(0x00, 0x07);
-/* USER CODE END 2 */
+
+  /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
     /* USER CODE END WHILE */
-
+		for(int i=0;i<180;i++){
+			Servo_GotoAngle(i);
+			HAL_Delay(100);
+		}
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -145,36 +165,51 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
+  * @brief TIM4 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_I2C1_Init(void)
+static void MX_TIM4_Init(void)
 {
 
-  /* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN TIM4_Init 0 */
 
-  /* USER CODE END I2C1_Init 0 */
+  /* USER CODE END TIM4_Init 0 */
 
-  /* USER CODE BEGIN I2C1_Init 1 */
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
-  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 7;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 19999;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
 
-  /* USER CODE END I2C1_Init 2 */
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 
 }
 
@@ -190,7 +225,6 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
